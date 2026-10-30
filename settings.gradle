@@ -1,0 +1,21 @@
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+        // Legacy Xposed framework API (LSPosed implements it). compileOnly, so the APK does not
+        // bundle it and the classes are resolved from the framework inside the host process.
+        maven { url = 'https://api.xposed.info/' }
+    }
+}
+
+rootProject.name = 'highway-radar-aa'
+include ':app'

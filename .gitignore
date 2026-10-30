@@ -1,0 +1,23 @@
+# Agent/tooling state, not project source
+.gjc/
+.serena/
+
+# Gradle
+.gradle/
+**/build/
+local.properties
+
+# Android
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+
+# Misc scratch paths used during development
+/tmp/koala
+/tmp/hwradar

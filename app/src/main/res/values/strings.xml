@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Highway Radar</string>
+    <string name="module_name">Highway Radar AA Relay</string>
+    <string name="module_description">Reads Highway Radar\'s live alert list in memory and relays it to the Android Auto companion app over a local broadcast. No network access.</string>
+</resources>

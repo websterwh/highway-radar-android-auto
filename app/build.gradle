@@ -1,0 +1,54 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.highwayradar.aa.companion'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'com.highwayradar.aa.companion'
+        // The Xposed/LSPosed hook side needs the lower floor to keep hooking older Highway
+        // Radar/Maps installs; the car-app side only needs API 30+ (androidx.car.app, virtual
+        // display passthrough), so the module's floor wins.
+        minSdk 27
+        targetSdk 36
+        versionCode 1
+        versionName '1.0'
+    }
+
+    buildFeatures {
+        aidl true
+        buildConfig true
+    }
+
+    buildTypes {
+        release {
+            // Personal sideloaded app: no shrinking, no obfuscation, no Play upload.
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    // de.robv.android.xposed:api:82 — the LSPosed-compatible classic Xposed API surface.
+    // compileOnly on purpose: XposedBridge/XposedHelpers/AndroidAppHelper are injected by the
+    // framework at runtime and must never be packaged into the APK.
+    compileOnly 'de.robv.android.xposed:api:82'
+
+    // DexKit — structural dex matcher used to re-derive Google Maps' renamed obfuscated
+    // classes/methods across app updates instead of hardcoding per-version letters. Bundled
+    // (not compileOnly): unlike the Xposed API, LSPosed does not provide this at runtime.
+    // DexKit's public API is Kotlin, so its Kotlin stdlib transitively comes along too.
+    implementation 'org.luckypray:dexkit:2.3.0'
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib:1.9.24'
+
+    // Android Auto / Car App Library host for the real-app passthrough and in-car settings UI.
+    implementation 'androidx.car.app:app:1.7.0'
+}

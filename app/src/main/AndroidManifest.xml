@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <permission
+        android:name="com.highwayradar.aa.companion.permission.CONTROL_PROJECTED_APP"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="com.highwayradar.aa.companion.permission.CONTROL_PROJECTED_APP" />
+
+    <queries>
+        <package android:name="com.highwayradar.app" />
+        <package android:name="com.google.android.apps.maps" />
+        <provider android:authorities="androidx.car.app.connection" />
+    </queries>
+
+    <!--
+      Required by the car host to hand this app a drawable Surface. Without it,
+      AppManager.setSurfaceCallback() throws SecurityException.
+    -->
+    <uses-permission android:name="androidx.car.app.ACCESS_SURFACE" />
+    <uses-permission android:name="androidx.car.app.MAP_TEMPLATES" />
+    <uses-permission android:name="androidx.car.app.NAVIGATION_TEMPLATES" />
+
+    <!-- The overlay draws the device position dot. No network permission is declared anywhere. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true">
+
+        <!-- LSPosed/Xposed module declaration: this app's code is injected into Highway Radar,
+             Google Maps and Gearhead's processes by the framework. The car-app components below
+             (activity/provider/service/receivers) run normally in this app's own process when
+             the user launches or connects to it; the two roles share one APK because they are
+             two halves of the same feature and are meaningless installed separately. -->
+        <meta-data
+            android:name="xposedmodule"
+            android:value="true" />
+        <meta-data
+            android:name="xposeddescription"
+            android:value="@string/module_description" />
+        <meta-data
+            android:name="xposedminversion"
+            android:value="82" />
+        <!-- LSPosed pre-selects this scope when the module is enabled. Older frameworks ignore the
+             key, in which case the scope has to be selected once in the LSPosed Manager. -->
+        <meta-data
+            android:name="xposedscope"
+            android:resource="@array/xposed_scope" />
+
+        <!-- Phone-projection (Android Auto on the phone) declaration for templated apps. -->
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+
+        <!--
+          Read by androidx.car.app.AppInfo from ApplicationInfo.metaData, so it must be declared on
+          <application>. The personal sideloaded build retains a Car App API level 7 host floor.
+        -->
+        <meta-data
+            android:name="androidx.car.app.minCarApiLevel"
+            android:value="7" />
+        <activity
+            android:name="com.highwayradar.aa.companion.SettingsActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <provider
+            android:name="com.highwayradar.aa.companion.SettingsContentProvider"
+            android:authorities="com.highwayradar.aa.companion.settings"
+            android:grantUriPermissions="true"
+            android:exported="true" />
+
+        <service
+            android:name="com.highwayradar.aa.companion.HighwayRadarCarAppService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.car.app.CarAppService" />
+                <!--
+                  POI, not NAVIGATION: this app is not a turn-by-turn navigation provider and must
+                  not start navigation sessions. The full-surface NavigationTemplate shell is
+                  tested on the personal host, not a Play-reviewed POI template configuration.
+                -->
+                <category android:name="androidx.car.app.category.POI" />
+            </intent-filter>
+        </service>
+
+        <receiver
+            android:name="com.highwayradar.aa.companion.CarConnectionReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.car.app.connection.action.CAR_CONNECTION_UPDATED" />
+                <action android:name="com.highwayradar.aa.CONNECTION_REFRESH" />
+                <action android:name="com.highwayradar.aa.ACTION_BACK" />
+            </intent-filter>
+        </receiver>
+    </application>
+
+</manifest>
