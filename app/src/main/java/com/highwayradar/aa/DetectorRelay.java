@@ -154,6 +154,7 @@ public final class DetectorRelay {
             mapsIntent.addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
             mapsIntent.putExtra(EXTRA_DETECTOR_JSON, json);
             context.sendBroadcast(mapsIntent);
+            HookLog.i("DetectorRelay broadcast sent to Maps: length=" + json.length());
         } catch (Throwable t) {
             HookLog.warnOnce("relay-broadcast", "sendBroadcast(" + ACTION + ") failed: " + t);
         }

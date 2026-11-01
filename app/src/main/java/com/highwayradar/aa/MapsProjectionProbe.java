@@ -3,6 +3,10 @@ package com.highwayradar.aa;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
+import android.content.Context;
+import android.content.ContextWrapper;
+import android.content.res.Configuration;
+import android.view.Display;
 
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
@@ -86,43 +90,28 @@ final class MapsProjectionProbe {
         if (gen == 0 || access == null) return false;
         PROJECTING.set(Boolean.TRUE);
         try {
-            POLICY.beginSelection(
-                    MapsProjectionOverlay.viewportWidth(), MapsProjectionOverlay.viewportHeight());
+            int vWidth = MapsProjectionOverlay.viewportWidth();
+            int vHeight = MapsProjectionOverlay.viewportHeight();
+            if (vWidth <= 0 || vHeight <= 0) return false;
             Object projector = null;
-            // Never invoke Maps under the registry lock. Projectors are captured from the map
-            // controller and remain valid until Maps replaces that controller.
-            for (ProjectorCandidate entry : sProjectors) {
+            // Iterate backwards (most recently captured projector first).
+            for (int i = sProjectors.length - 1; i >= 0; i--) {
+                ProjectorCandidate entry = sProjectors[i];
                 Object candidate = entry.projector.get();
                 if (candidate == null) continue;
                 try {
+                    access.calibrate(candidate, vWidth, vHeight);
                     int width = (Integer) access.width.invoke(candidate);
                     int height = (Integer) access.height.invoke(candidate);
-                    // Maps does not expose the renderer View through this controller. Exact
-                    // viewport dimensions are therefore the only safe ownership signal.
-                    POLICY.consider(candidate, false, width, height);
-                    if (POLICY.selected() == candidate) projector = candidate;
+                    if (width == vWidth && height == vHeight) {
+                        projector = candidate;
+                        break;
+                    }
                 } catch (Throwable t) {
                     HookLog.warnOnce("maps-projector-read", "Maps projector read failed: " + t);
-                    // An unavailable candidate must not prevent a proven owner being sampled.
                 }
             }
-            if (POLICY.isAmbiguous()) {
-                HookLog.warnOnce(
-                        "maps-camera-ambiguous",
-                        "Maps viewport camera is ambiguous; hiding markers");
-                return false;
-            }
-            if (POLICY.selected() == null || projector == null) return false;
-            if (!POLICY.isProven()) {
-                HookLog.warnOnce(
-                        "maps-camera-dimensions",
-                        "Maps camera selected by unique viewport dimensions only; ownership"
-                            + " unproven");
-            }
-            access.calibrate(
-                    projector,
-                    MapsProjectionOverlay.viewportWidth(),
-                    MapsProjectionOverlay.viewportHeight());
+            if (projector == null) return false;
             return sampleAndProject(projector, access, gen);
         } catch (Throwable t) {
             HookLog.warnOnce("maps-project", "Maps projection failed: " + t);
@@ -136,6 +125,23 @@ final class MapsProjectionProbe {
 
     static void install(XC_LoadPackage.LoadPackageParam load) {
         hookMapContainer(load);
+        try {
+            XposedHelpers.findAndHookMethod(
+                    "android.app.Application",
+                    load.classLoader,
+                    "onCreate",
+                    new XC_MethodHook() {
+                        @Override
+                        protected void afterHookedMethod(MethodHookParam param) {
+                            try {
+                                OverlaySettings.init((Context) param.thisObject);
+                            } catch (Throwable ignored) {}
+                        }
+                    });
+        } catch (Throwable t) {
+            HookLog.w("Could not hook Application.onCreate for early OverlaySettings: " + t);
+        }
+
 
         MapsClassResolver.Resolved resolved = null;
         try {
@@ -238,8 +244,51 @@ final class MapsProjectionProbe {
         }
     }
 
+    static boolean isCarDisplay(View view) {
+        if (view == null) return false;
+        Display display = view.getDisplay();
+        if (display != null && display.getDisplayId() != Display.DEFAULT_DISPLAY) {
+            return true;
+        }
+        try {
+            Configuration cfg = view.getResources().getConfiguration();
+            if ((cfg.uiMode & Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_CAR) {
+                return true;
+            }
+        } catch (Throwable ignored) {}
+        Context ctx = view.getContext();
+        while (ctx != null) {
+            try {
+                if (ctx.getDisplay() != null
+                        && ctx.getDisplay().getDisplayId() != Display.DEFAULT_DISPLAY) {
+                    return true;
+                }
+            } catch (Throwable ignored) {}
+            if (ctx.getClass().getName().contains("Presentation")) {
+                return true;
+            }
+            if (ctx instanceof ContextWrapper) {
+                ctx = ((ContextWrapper) ctx).getBaseContext();
+            } else {
+                break;
+            }
+        }
+        return false;
+    }
+
     private static void attach(View view) {
         if (!view.isAttachedToWindow()) return;
+        if (!isCarDisplay(view)) {
+            HookLog.once(
+                    "ignore-phone-display",
+                    "Ignoring phone MapViewContainer: overlay targets Android Auto car display only");
+            return;
+        }
+        HookLog.i(
+                "Attaching overlay to Android Auto car display: view="
+                        + view.getClass().getSimpleName()
+                        + " display="
+                        + (view.getDisplay() != null ? view.getDisplay().getDisplayId() : "null"));
         OverlaySettings.init(view.getContext());
         MapsProjectionOverlay.attach(view);
         MapsProjectionOverlay.requestRedraw();
@@ -369,7 +418,7 @@ final class MapsProjectionProbe {
          */
         void calibrate(Object projector, int viewportWidth, int viewportHeight) {
             if (!needsCalibration) return;
-            needsCalibration = false;
+            if (viewportWidth <= 0 || viewportHeight <= 0) return;
             try {
                 int reportedWidth = (Integer) width.invoke(projector);
                 int reportedHeight = (Integer) height.invoke(projector);
@@ -377,6 +426,9 @@ final class MapsProjectionProbe {
                         reportedWidth == viewportWidth && reportedHeight == viewportHeight;
                 boolean swappedMatches =
                         reportedWidth == viewportHeight && reportedHeight == viewportWidth;
+                if (matches || swappedMatches) {
+                    needsCalibration = false;
+                }
                 if (!matches && swappedMatches) {
                     Method originalWidth = width;
                     width = height;

@@ -49,16 +49,18 @@ final class OverlaySettings {
                                 "{\"model\":null,\"connected\":false}");
                         MapsProjectionOverlay.requestRedraw();
                     } else if (AlertRelay.ACTION.equals(action)) {
+                        appStopped = false;
                         String json = intent.getStringExtra(AlertRelay.EXTRA_ALERTS_JSON);
                         LiveOverlayDataStore.updateAlertsFromJson(json);
+                        HookLog.i(
+                                "OverlaySettings received alerts: count="
+                                        + LiveOverlayDataStore.getMarkers().size());
                         MapsProjectionOverlay.requestRedraw();
                     } else if (DetectorRelay.ACTION.equals(action)) {
                         String json = intent.getStringExtra(DetectorRelay.EXTRA_DETECTOR_JSON);
                         if (!LiveOverlayDataStore.parseEnvelope(json).malformed) appStopped = false;
-                        // updateDetectorFromJson handles both full (model+connected+signals) and
-                        // state-only (model+connected) envelopes.  The expiry redraw is scheduled
-                        // inside the store; we only request an immediate redraw here.
                         LiveOverlayDataStore.updateDetectorFromJson(json);
+                        HookLog.i("OverlaySettings received detector update");
                         MapsProjectionOverlay.requestRedraw();
                     }
                 }
@@ -141,9 +143,7 @@ final class OverlaySettings {
     }
 
     static boolean isOverlayEnabled() {
-        // A saved model or old marker list is not evidence that the producer is running.
-        // Real-app metadata heartbeats establish liveness even while BLE is disconnected.
-        return overlayEnabled && !appStopped && LiveOverlayDataStore.hasRecentDetectorState();
+        return overlayEnabled && !appStopped;
     }
 
     static boolean isPoliceEnabled() {

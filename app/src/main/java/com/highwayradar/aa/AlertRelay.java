@@ -127,6 +127,7 @@ final class AlertRelay {
             mapsIntent.addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
             mapsIntent.putExtra(EXTRA_ALERTS_JSON, json);
             context.sendBroadcast(mapsIntent);
+            HookLog.i("AlertRelay broadcast sent to Maps: length=" + json.length());
         } catch (Throwable t) {
             HookLog.warnOnce("relay-failed", "sendBroadcast(" + ACTION + ") failed: " + t);
         }
