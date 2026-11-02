@@ -7,6 +7,8 @@ import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.res.Configuration;
 import android.view.Display;
+import android.view.SurfaceView;
+import android.view.TextureView;
 
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
@@ -24,6 +26,7 @@ final class MapsProjectionProbe {
     static final String TARGET_PACKAGE = "com.google.android.apps.maps";
 
     private static final Map<View, Boolean> REGISTERED_VIEWS = new WeakHashMap<>();
+    private static final Map<Class<?>, Boolean> MAP_SURFACE_TYPES = new WeakHashMap<>();
     // Bounded ring, not a WeakHashMap: some provider methods (observed on Maps 26.43's
     // "blas.d()") return a freshly allocated wrapper on every call instead of a stable singleton.
     // A WeakHashMap only shrinks via GC, which call rate can outrun, so an unbounded candidate
@@ -124,7 +127,7 @@ final class MapsProjectionProbe {
     }
 
     static void install(XC_LoadPackage.LoadPackageParam load) {
-        hookMapContainer(load);
+        hookMapSurfaces(load);
         try {
             XposedHelpers.findAndHookMethod(
                     "android.app.Application",
@@ -194,31 +197,47 @@ final class MapsProjectionProbe {
         hookProjectorProvider(load, "bkgj");
     }
 
-    private static void hookMapContainer(XC_LoadPackage.LoadPackageParam load) {
-        try {
-            Class<?> type =
-                    XposedHelpers.findClass(
-                            "com.google.android.apps.gmm.base.views.map.MapViewContainer",
-                            load.classLoader);
-            XC_MethodHook attachHook =
-                    new XC_MethodHook() {
-                        @Override
-                        protected void afterHookedMethod(MethodHookParam param) {
-                            if (!param.hasThrowable()) register((View) param.thisObject);
-                        }
-                    };
-            XposedHelpers.findAndHookMethod(type, "onAttachedToWindow", attachHook);
-            XposedHelpers.findAndHookMethod(
-                    type,
-                    "onSizeChanged",
-                    int.class,
-                    int.class,
-                    int.class,
-                    int.class,
-                    attachHook);
-            HookLog.i("Maps MapViewContainer hooks installed in " + load.processName);
-        } catch (Throwable t) {
-            HookLog.w("Maps MapViewContainer hooks unavailable: " + t);
+    /**
+     * Hooks the framework surface classes rather than an obfuscated Maps container: since Maps
+     * 26.43 the Android Auto UI is hosted in a SurfaceControlViewHost tree that never contains
+     * MapViewContainer, and its car map renderer exposes no stable member names. Every Maps GL map
+     * view is an app-defined SurfaceView/TextureView subclass; attach() then keeps only the one on
+     * the car display, and projector calibration matches it by viewport size.
+     */
+    private static void hookMapSurfaces(XC_LoadPackage.LoadPackageParam load) {
+        XC_MethodHook attachHook =
+                new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        if (param.hasThrowable()) return;
+                        View view = (View) param.thisObject;
+                        if (isMapSurface(view.getClass())) register(view);
+                    }
+                };
+        for (Class<?> type : new Class<?>[] {SurfaceView.class, TextureView.class}) {
+            try {
+                XposedHelpers.findAndHookMethod(type, "onAttachedToWindow", attachHook);
+                HookLog.i(
+                        "Maps map-surface hook installed on "
+                                + type.getSimpleName()
+                                + " in "
+                                + load.processName);
+            } catch (Throwable t) {
+                HookLog.w("Maps map-surface hook unavailable on " + type.getSimpleName() + ": " + t);
+            }
+        }
+    }
+
+    private static boolean isMapSurface(Class<?> type) {
+        synchronized (MAP_SURFACE_TYPES) {
+            Boolean cached = MAP_SURFACE_TYPES.get(type);
+            if (cached != null) return cached;
+            // Framework and platform surface classes share View's loader; Maps' own GL map views
+            // (phone renderer and the 26.43+ car renderer alike) are defined by the app loader.
+            ClassLoader loader = type.getClassLoader();
+            boolean map = loader != null && loader != View.class.getClassLoader();
+            MAP_SURFACE_TYPES.put(type, map);
+            return map;
         }
     }
 
@@ -281,7 +300,7 @@ final class MapsProjectionProbe {
         if (!isCarDisplay(view)) {
             HookLog.once(
                     "ignore-phone-display",
-                    "Ignoring phone MapViewContainer: overlay targets Android Auto car display only");
+                    "Ignoring phone map surface: overlay targets Android Auto car display only");
             return;
         }
         HookLog.i(
